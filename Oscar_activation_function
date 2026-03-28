@@ -1,0 +1,59 @@
+import torch
+from torch import nn
+class Oscar(nn.Module):
+    def __init__(self, threshold = 1.0, n = 2.0,per_channel = False, num_channels = None):
+        super(Oscar, self).__init__()
+        self.n = n
+        if per_channel and num_channels is not None:
+            self.threshold = nn.Parameter(torch.ones(num_channels)* threshold)
+            self.per_channel = True
+        else:
+            self.threshold = nn.Parameter(torch.tensor(threshold)) if per_channel else threshold
+            self.per_channel = False
+    def forward(self, x):
+        device = x.device
+        if self.per_channel and isinstance(self.threshold, nn.Parameter):
+            shape = [1, -1]+[1]*(x.dim() - 2)
+            threshold = self.threshold.view(*shape)
+        else:
+            threshold = torch.tensor([self.threshold])
+        n = torch.as_tensor(self.n, dtype = torch.float32, device = device)
+        n_thresh = self.n ** threshold
+        c = n_thresh - torch.log2(threshold + 1) - 1
+        power_part = self.n ** x
+        log_part = torch.log2(x+1) + 1 + c
+        return torch.where(x <= threshold, power_part, log_part)
+
+import math
+def f(x , y):
+    return math.sin(x) + math.sin(y) + math.sin(x+y)
+net = nn.Sequential(nn.Linear(2, 256), relu(), nn.Linear(256, 128), relu(),nn.Linear(128, 1))
+optimizer = optim.SGD(net.parameters(), lr = 0.001)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode = 'min', patience=10, factor = 0.5, threshold = 0.01)
+def training(epochs, batch):
+    losses = []
+    for epoch in range(epochs):
+        print('epoch', epoch)
+        datas, loss = [], 0.0
+        for i in range(batch):
+            data = random.randint(0, 500)
+            data_1 = random.randint(0, 500)
+            s = torch.tensor([f(data, data_1)])
+            datas.append([torch.tensor(float(data)), torch.tensor(float(data_1)), s])
+        for a, b, c in datas:
+            x = torch.tensor([[a, b]])
+            y_hat = net(x)
+            loss_fn = torch.nn.MSELoss()(y_hat, torch.tensor(c))
+            loss += loss_fn.float()
+        loss /= batch
+        loss = torch.tensor(loss)
+        losses.append(float(loss))
+        loss.requires_grad_(True)
+        loss.backward()
+        optimizer.zero_grad()
+        optimizer.step()
+        scheduler.step(loss)
+    torch.save(net, 'triangle_function.pth')
+    d2l.plot(list(range(epochs)), [losses], xlabel='epoch', ylabel='loss', xlim=[0, epochs], legend=['loss'])
+    plt.show()
+training(1000, 32)
